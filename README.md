@@ -72,7 +72,7 @@ The `preprocessing` function applies a brain mask to filter out non-brain voxels
 def preprocessing(data, threshold=1):
     brain_mask = np.mean(data, axis=-1) > threshold
     masked_data = data[brain_mask]
-    return masked_data
+    return masked_data, brain_mask
 ```
 
 - **Process**:
@@ -148,35 +148,50 @@ def test(X_train_scaled, X_test_scaled, y_train, y_test, model):
 The `brain_classification` function orchestrates the entire pipeline:
 
 ```python
-def brain_classification(filepath, labelpath='label.mat', n_components=50, kernel='linear', C=1.2, k=4):
-    # Load data and labels
-    data, labels = get_data(filepath=filepath)
-    # Reshape and transpose data to have samples first
-    data = data.transpose(3, 0, 1, 2).reshape(184, -1)
-    # Split into training and test sets
-    X_train_data, X_test_data, y_train, y_test = train_test_split(
-        data, labels, test_size=0.2, random_state=42, stratify=labels
-    )
-    # Preprocessing
-    masked_data = preprocessing(X_train_data, threshold=1)
-    masked_data_test = preprocessing(X_test_data, threshold=1)
-    # Feature Selection
-    pca, reduced_data = feature_selection(masked_data, n_components=n_components)
+def brain_classification(filepath, labelpath = 'label.mat', threshold = 1, n_components = 50, kernel = 'linear', C = 1.2, k = 4):
+
+    # Load data
+    data, labels = get_data(filepath = filepath)
+
+    # Transpose data to have samples first
+    data = data.transpose(3, 0, 1, 2)
+    # data.shape: (184, 64, 64, 30)
+
+    # Reshape data 
+    data = data.reshape(184, -1)
+    # data.shape: (184, 64*64*30)
+
+    # Split data into training and test sets
+    X_train_data, X_test_data, y_train, y_test = train_test_split(data, labels, test_size=0.2, random_state=42, stratify=labels)
+
+    #Brain mask
+    masked_data, brain_mask = preprocessing(X_train_data, threshold=threshold)  # Shape: (num_voxels, 184)
+    masked_data_test = X_test_data[:, brain_mask]
+
+    # Feature selection
+    pca, reduced_data = feature_selection(masked_data, n_components=n_components)  # Shape: (184, 50)
     reduced_data_test = pca.transform(masked_data_test)
-    # Model Selection
-    svm, scaler, data_scaled = model_selection(reduced_data, kernel=kernel, C=C)
+
+    # SVM model selection and data scaling
+    svm, scaler, data_scaled = model_selection(reduced_data, kernel = kernel, C = C)
     data_scaled_test = scaler.transform(reduced_data_test)
-    # Cross-Validation
+
+    # Cross validation
     accuracy_scores = cross_val(svm, data_scaled, np.ravel(y_train), k=k)
+
+    # Calculate final mean validation accuracy
     mean_accuracy = np.mean(accuracy_scores)
+
     print("Mean Validation Accuracy: {:.2f}%".format(mean_accuracy * 100))
-    # Testing
+
+    # Evaluate the model on test set
     test(data_scaled, data_scaled_test, y_train, y_test, svm)
 ```
 
 - **Parameters**:
   - `filepath`: Path to the neuroimaging data file.
   - `labelpath`: Path to the label file.
+  - `threshold`: Single threshold forr brain masking.
   - `n_components`: Number of principal components for PCA.
   - `kernel`: Kernel type for SVM (`'linear'`, `'rbf'`, etc.).
   - `C`: Regularization parameter for SVM.
